@@ -1,0 +1,333 @@
+---
+title: Adding Tigris to an existing Nextjs Application
+---
+
+import {
+  HomepageCard as Card,
+  HomepageSection as Section,
+} from "../../../../src/components/HomepageComponents";
+import TerminalWindow from "@site/src/components/TerminalWindow/index";
+import CodeBlock from "@theme/CodeBlock";
+import createNextAppOutput from "!!raw-loader!./_createNextAppOutput";
+import runDevOutput from "!!raw-loader!./_runDevOutput";
+import loginOutput from "!!raw-loader!./_loginOutput";
+import tigrisCreateAppOutput from "!!raw-loader!./_tigrisCreateAppOutput";
+import Installation from "../../../includes/_install_cloud_login.mdx";
+
+# Adding Tigris to an existing Nextjs Application
+This guide discusses the concepts behind using Tigris in your existing Nextjs project and configuring your application to integrate with Tigrisdata.
+
+### Setup Tigris account
+First, install the Tigris CLI with the command `brew install tigrisdata/tigris/tigris-cli` for macOS. For other operating systems: [See installation instructions here](https://docs.tigrisdata.com/cli/installation)
+
+Next, sign in to your existing Tigris account or signup for a new account:
+```shell
+tigris login
+```
+
+```mdx-code-block
+<TerminalWindow>
+<CodeBlock language="shell">{loginOutput}</CodeBlock>
+</TerminalWindow>
+```
+
+
+### Add the Tigris cloud credentials
+
+For your application to connect with Tigris, you need to generate some credentials and
+add them to the environment file.
+
+```shell
+tigris create application <YOUR_PROJECT_NAME> "<YOUR_PROJECT_DESCRIPTION>"
+```
+
+Replace `<YOUR_PROJECT_NAME>` and `<YOUR_PROJECT_DESCRIPTION>` argumemts with your project name and description respectively. This will create the credentials and print it on the terminal screen:
+
+```mdx-code-block
+<TerminalWindow>
+<CodeBlock language="shell">{tigrisCreateAppOutput}</CodeBlock>
+</TerminalWindow>
+```
+
+
+You will use the `id` and `secret` from the output and add them as `TIGRIS_CLIENT_ID` and `TIGRIS_CLIENT_SECRET`
+respectively in the file `.env.development.local` in `my-tigris-app` directory.
+
+Now, create a `.env.development.local`file in your project root directory and add the application credentials generated above to it:
+
+```
+dotenv title=.env.development.local
+TIGRIS_URI=api.preview.tigrisdata.cloud
+TIGRIS_CLIENT_ID=client_id_here
+TIGRIS
+```
+
+### Define the data model{#data-model}
+
+Tigris stores data records as documents. Documents are analogous to JSON objects grouped together in
+a [Collection](/overview/databases). Tigris follows a convention of having models and schemas in `models/tigris` directory. Within the directory, you'll need to another folder that matches the name of your database name. Then create your schema file. 
+Your models structure should look like `models/tigris/[DATABASE_NAME]/[MODEL_NAME].tsx`
+
+For example, create a `models/tigris/blogApp/blogItems.ts` file in the root directory of your project and add the code:
+
+```ts title=models/tigris/todoApp/blogItems.ts
+import {
+  TigrisCollectionType,
+  TigrisDataTypes,
+  TigrisSchema,
+} from "@tigrisdata/core/dist/types";
+
+export const COLLECTION_NAME = "blogItems";
+
+// highlight-start
+export interface BlogItem extends TigrisCollectionType {
+    id?: number;
+    title: string;
+    content: string;
+    description: string
+}
+
+export const BlogItemSchema: TigrisSchema<BlogItem> = {
+  id: {
+    type: TigrisDataTypes.INT32,
+    primary_key: { order: 1, autoGenerate: true },
+  },
+  title: { type: TigrisDataTypes.STRING },
+  content: { type: TigrisDataTypes.STRING },
+  description: { type: TigrisDataTypes.STRING },
+};
+// highlight-end
+```
+You've imported the Tigris `TigrisCollectionType` type, which is extended to define a model for your collections, the `TigrisDataTypes` type that gives you access to the Tigris data types and the `TigrisSchema` that gives you access to the Tigris data types.
+Once this scripts run a database named todoStarterApp (derived from directory name) and a collection named todoItems (derived from filename) will be created conforming to TodoItemSchema. If the collection already exists, it will apply schema changes, if any, to that collection.
+
+### Tigris Automatic schema management
+
+Now automate your schema management to configure how the Tigris instance loader will be executed at runtime and register your schema. First, create a `sripts/setup.ts` file in the root directory of your project and add the code:
+
+Tigris makes it really easy to [automate schema management](/typescript/documents/schema-bootstrap)
+using the models defined in your project. To automate your schema 
+Let's see how this works by taking a closer look at code in the
+`scripts/setup.ts` file:
+
+```ts title=scripts/setup.ts
+import { Tigris } from "@tigrisdata/core";
+import { loadEnvConfig } from "@next/env";
+
+// Run the config loader only when not executing within next runtime
+if (process.env.NODE_ENV === undefined) {
+  if (process.env.APP_ENV === "development") {
+    loadEnvConfig(process.cwd(), true);
+  } else if (process.env.APP_ENV === "production") {
+    loadEnvConfig(process.cwd());
+  }
+}
+
+async function main() {
+  // highlight-start
+  // setup client and register schemas
+  const tigrisClient = new Tigris();
+  await tigrisClient.registerSchemas("models/tigris");
+  // highlight-end
+}
+
+main();
+```
+Here we used the `registerSchemas()` method which accepts the path to the databases and collections that needs to be created. Then we all the models in the `models/tigris` directory with
+Tigris client that includes a `blogApp` directory and `blogItems.ts` file with the `BlogItemSchema` you
+defined.
+
+Once the script runs, a database named blogApp (derived from directory name) and a collection named blogItems (derived from filename) will be created conforming to BlogItemSchema. If the collection already exists, it will apply schema changes, if any, to that collection.
+
+Next, automate this process by always executing the script at build time. Update your
+`package.json` file with highlighted scripts:
+
+```json title=package.json
+  "scripts": {
+    // highlight-next-line
+    "predev": "APP_ENV=development npm run setup",
+    "dev": "next dev",
+    "build": "next build",
+    // highlight-next-line
+    "postbuild": "APP_ENV=production npm run setup",
+    "start": "next start",
+    "clean": "rm -rf node_modules .next",
+    // highlight-next-line
+    "setup": "npx ts-node scripts/setup.ts"
+  }
+```
+
+You have added a `setup` command to run `scripts/setup.ts` and then added a `predev` hook to setup
+schemas right before `dev` command is executed. Additionally, we added a `postbuild` hook to
+setup schemas in production environment right after `build`. Now, all your databases and
+collections will be in sync with model definitions in code.
+
+:::tip No more schema management
+You don't have to worry about applying schema changes anymore, managing schema is now a part of your
+development workflow. Read more about this automated schema management [here](/typescript/documents/schema-bootstrap).
+:::
+
+
+### Create CRUD Operations
+
+You can now create execute CRUD operations against the `blogItems` collection. These
+endpoints will be used by the client component of your application to perform CRUD operations in Tigris. Now create a new folder in the `pages/api/` folder to 
+define your API endpoints.
+
+#### ⌲ GET `/api/blogs` to fetch all blogs
+
+For this demonstration, create a  `pages/api/blogs/index.ts` file which will map to `/api/blogs` and add the code:
+
+```ts title=pages/api/blogs/index.ts
+import {
+  COLLECTION_NAME,
+  BlogItem,
+} from '../../../models/tigris/blogApp/blogtems'
+
+async function handleGet(req: NextApiRequest, res: NextApiResponse<Response>) {
+  // highlight-start
+  try {
+    const itemsCollection = tigrisDb.getCollection<BlogItem>(COLLECTION_NAME);
+    const cursor = itemsCollection.findMany();
+    const items = await cursor.toArray();
+    res.status(200).json({ result: items });
+  } catch (err) {
+    const error = err as Error;
+    res.status(500).json({ error: error.message });
+  }
+  // highlight-end
+}
+```
+
+Here we used a simple `findMany()` construct to read documents from a Tigris collection and returned
+them as json.
+
+#### ⌲ POST `/api/items` to add to-do item
+
+Now, create a `POST` method in `pages/api/items/index.ts` that will insert an item to
+this collection.
+
+```ts title=pages/api/blogs/index.ts
+
+async function handlePost(req: NextApiRequest, res: NextApiResponse<Response>) {
+  // highlight-start
+  try {
+    const item = JSON.parse(req.body) as BlogItem;
+    const itemsCollection = tigrisDb.getCollection<BlogItem>(COLLECTION_NAME);
+    const inserted = await itemsCollection.insertOne(item);
+    res.status(200).json({ result: [inserted] });
+  } catch (err) {
+    const error = err as Error;
+    res.status(500).json({ error: error.message });
+  }
+  // highlight-end
+}
+```
+
+Here we implemented a function that enables user to insert a new item to the collection list.
+
+#### ⌲ PUT `/api/item/[id]` to update a record in the collection.
+
+To update the records in the collection, create a add a `pages/api/item/[id].ts` file to add `PUT` method which is routed to `api/item/[id] endpoint, where `id` is the unique
+identifier for the item that is being updated:
+
+```ts title=pages/api/item/[id].ts
+async function handlePut(req: NextApiRequest, res: NextApiResponse<Data>) {
+  // highlight-start
+  try {
+    const item = JSON.parse(req.body) as BlogItem;
+    const itemsCollection = tigrisDb.getCollection<BlogItem>(COLLECTION_NAME);
+    const updated = await itemsCollection.insertOrReplaceOne(item);
+    res.status(200).json({ result: updated });
+  } catch (err) {
+    const error = err as Error;
+    res.status(500).json({ error: error.message });
+  }
+  // highlight-end
+}
+```
+
+We are leveraging `insertOrReplaceOne()` function offered by the Tigris SDK that will replace the
+item in entirety with the new one. You can as well use the [`updateOne()`](/typescript/documents/update)
+function here to update individual fields instead of replacing whole document.
+
+#### ⌲ DELETE `/api/item/[id]` to remove item from collection.
+
+Similar to PUT method above, we will now add a `DELETE` method to the `pages/api/item/[id].ts` file to
+remove items from your collection.
+
+```ts title=pages/api/item/[id].ts
+async function handleDelete(
+  req: NextApiRequest,
+  res: NextApiResponse<Data>,
+  itemId: number
+) {
+  // highlight-start
+  try {
+    const itemsCollection = tigrisDb.getCollection<TodoItem>(COLLECTION_NAME);
+    const status = (await itemsCollection.deleteOne({ id: itemId })).status;
+    if (status === "deleted") {
+      res.status(200).json({});
+    } else {
+      res.status(500).json({ error: `Failed to delete ${itemId}` });
+    }
+  } catch (err) {
+    const error = err as Error;
+    res.status(500).json({ error: error.message });
+  }
+  // highlight-end
+}
+```
+
+The `deleteOne()` function accepts a filter and limits the deletion to only one document in the collection
+matching the given filter. The operation has no effect if there is no document matching the specified filter.
+
+#### ⌲ GET `/api/items/search` to find items matching the given query
+
+Search endpoint will allow users to be able to find items in the list. Let's add this endpoint that
+accepts a query parameter and responds with matching results. GET `/api/items/search?q="input query"`
+will be added in `pages/api/items/search.ts` file.
+
+```ts title=pages/api/items/search.ts
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<Data>
+) {
+  // highlight-start
+  const query = req.query["q"];
+  if (query === undefined) {
+    res.status(400).json({ error: "No search query found in request" });
+    return;
+  }
+  try {
+    const itemsCollection = tigrisDb.getCollection<TodoItem>(COLLECTION_NAME);
+    const searchRequest: SearchRequest<TodoItem> = { q: query as string };
+    const searchResult = await itemsCollection.search(searchRequest);
+    const items = new Array<TodoItem>();
+    for (const hit of searchResult.hits) {
+      items.push(hit.document);
+    }
+    res.status(200).json({ result: items });
+  } catch (err) {
+    const error = err as Error;
+    res.status(500).json({ error: error.message });
+  }
+  // highlight-end
+}
+```
+
+:::tip Built-in search
+Tigris makes it really easy to implement [search](/typescript/documents/search) within your applications
+by providing an embedded search engine that makes all your data instantly searchable.
+:::
+
+## Use in your components
+
+Now you can make a requet to the API to fetch and manipulate the from your Tigris database in your App components.
+
+
+<!-- MARKDOWN LINKS -->
+
+[nextjs-url]: https://nextjs.org/
+[tigris-todo-repo-url]: https://github.com/tigrisdata/tigris-vercel-starter
+[tweet-intent]: https://twitter.com/intent/tweet?url=https%3A%2F%2Ftigrisdata.com%2Fnextjs%2F&text=I%20learned%20how%20easy%20it%20is%20to%20build%20%23data%20rich%20applications%20using%20@nextjs%20and%20@TigrisData
