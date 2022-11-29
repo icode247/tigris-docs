@@ -1,9 +1,0 @@
-$ tigris create application <YOUR_PROJECT_NAME> "<YOUR_PROJECT_DESCRIPTION>"
-{
-  "id": "client_id_here",
-  "name": "project_name",
-  "description": "<YOUR_PROJECT_DESCRIPTION>",
-  "secret": "client_secret_here",
-  "created_at": 1668649071000,
-  "created_by": "auth0|xxx"
-}
