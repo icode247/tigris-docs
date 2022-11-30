@@ -1,4 +1,4 @@
-$ tigris create application <YOUR_PROJECT_NAME> "<YOUR_PROJECT_DESCRIPTION>"
+$ tigris create application my-awesome-blog "My blog using Tigris"
 {
   "id": "client_id_here",
   "name": "project_name_here",
